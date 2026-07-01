@@ -1,0 +1,4 @@
+/llama-observer-proxy
+/logs
+/logs-*
+*.test
