@@ -20,9 +20,10 @@ type Config struct {
 		Console bool   `yaml:"console"`
 	} `yaml:"logging"`
 	Observer struct {
-		PollIntervalMS int   `yaml:"poll_interval_ms"`
-		PollTimeoutMS  int   `yaml:"poll_timeout_ms"`
-		MaxParseBytes  int64 `yaml:"max_parse_bytes"`
+		PollIntervalMS   int            `yaml:"poll_interval_ms"`
+		PollTimeoutMS    int            `yaml:"poll_timeout_ms"`
+		MaxParseBytes    int64          `yaml:"max_parse_bytes"`
+		RequestOverrides map[string]any `yaml:"request_overrides"`
 	} `yaml:"observer"`
 }
 

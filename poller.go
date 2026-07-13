@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +17,6 @@ import (
 )
 
 func (s *requestState) startPoller() {
-	s.snapshotProps("props_start.json")
 	go s.pollLoop()
 }
 
@@ -68,12 +68,40 @@ func (s *requestState) pollOnce(metricsFile, slotsFile *os.File) {
 	if slotsFile != nil {
 		appendJSONLine(slotsFile, s.fetchJSONEndpoint("slots", now))
 	}
+	s.snapshotPropsIfAvailable()
 	s.writeSummary()
 }
 
-func (s *requestState) snapshotProps(filename string) {
+func (s *requestState) snapshotPropsIfAvailable() {
+	s.mu.Lock()
+	done := s.propsLoadedSaved
+	s.mu.Unlock()
+	if done {
+		return
+	}
 	entry := s.fetchJSONEndpoint("props", time.Now())
-	writeJSONAtomic(filepath.Join(s.dir, filename), entry)
+	ok, _ := entry["ok"].(bool)
+	if !ok {
+		return
+	}
+	data, ok := entry["data"]
+	if !ok {
+		return
+	}
+	status, _ := entry["status"].(int)
+	loadedAt := time.Now()
+	s.mu.Lock()
+	if s.propsLoadedSaved {
+		s.mu.Unlock()
+		return
+	}
+	s.propsLoadedSaved = true
+	s.summary.PropsLoaded = true
+	s.summary.PropsLoadedAt = &loadedAt
+	s.summary.PropsLoadedStatusCode = status
+	s.mu.Unlock()
+
+	writeJSONAtomic(filepath.Join(s.dir, "props.json"), data)
 }
 
 func (s *requestState) fetchMetrics(ts time.Time) map[string]any {
@@ -162,7 +190,7 @@ func parsePrometheusMetrics(body []byte) map[string]any {
 			continue
 		}
 		value, err := strconv.ParseFloat(fields[1], 64)
-		if err != nil {
+		if err != nil || math.IsInf(value, 0) || math.IsNaN(value) {
 			out[fields[0]] = fields[1]
 			continue
 		}

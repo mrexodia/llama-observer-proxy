@@ -40,7 +40,40 @@ func (m InjectMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.ContentLength = int64(len(patched))
 	r.Header.Set("Content-Length", stringInt(len(patched)))
 	r.Header.Set("Content-Type", "application/json")
-	m.Next.ServeHTTP(w, r)
+
+	if clientRequestedStream(body) {
+		m.Next.ServeHTTP(w, r)
+		return
+	}
+
+	// The client asked for a non-streaming response but diagnostics forced
+	// stream=true upstream. Buffer the SSE stream (the logging layer below
+	// still records it raw) and fold it back into a single JSON completion.
+	buffer := newResponseBuffer()
+	m.Next.ServeHTTP(buffer, r)
+	if !buffer.isSSE() {
+		buffer.writeThrough(w)
+		return
+	}
+	assembled, ok := reassembleSSE(buffer.body.Bytes())
+	if !ok {
+		buffer.writeThrough(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", stringInt(len(assembled)))
+	w.WriteHeader(buffer.status)
+	_, _ = w.Write(assembled)
+}
+
+func clientRequestedStream(body []byte) bool {
+	var payload struct {
+		Stream bool `json:"stream"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	return payload.Stream
 }
 
 func isLLMRequest(r *http.Request) bool {
@@ -104,6 +137,19 @@ func DefaultDiagnosticOptions() map[string]any {
 			"include_usage": true,
 		},
 	}
+}
+
+func MergeOptions(dst, src map[string]any) map[string]any {
+	for key, value := range src {
+		if srcMap, ok := value.(map[string]any); ok {
+			if dstMap, ok := dst[key].(map[string]any); ok {
+				MergeOptions(dstMap, srcMap)
+				continue
+			}
+		}
+		dst[key] = value
+	}
+	return dst
 }
 
 func stringInt(n int) string {

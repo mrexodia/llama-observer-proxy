@@ -27,9 +27,13 @@ func main() {
 		log.Fatalf("failed to add proxy route: %v", err)
 	}
 
+	diagnosticOptions := DefaultDiagnosticOptions()
+	MergeOptions(diagnosticOptions, cfg.Observer.RequestOverrides)
+
 	var handler http.Handler = InjectMiddleware{
-		Next:    proxy,
-		Enabled: true,
+		Next:              proxy,
+		Enabled:           true,
+		DiagnosticOptions: diagnosticOptions,
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

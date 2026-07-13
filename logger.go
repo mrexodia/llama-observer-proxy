@@ -36,12 +36,13 @@ type requestState struct {
 	created  time.Time
 	metadata loggingproxy.RequestMetadata
 
-	mu      sync.Mutex
-	summary Summary
-	model   string
-	stop    chan struct{}
-	once    sync.Once
-	logger  *ObserverLogger
+	mu               sync.Mutex
+	summary          Summary
+	model            string
+	stop             chan struct{}
+	once             sync.Once
+	propsLoadedSaved bool
+	logger           *ObserverLogger
 }
 
 type Summary struct {
@@ -79,6 +80,9 @@ type Summary struct {
 	BytesResponse            int64          `json:"bytes_response"`
 	PollSamples              int            `json:"poll_samples"`
 	LastMetrics              map[string]any `json:"last_metrics,omitempty"`
+	PropsLoaded              bool           `json:"props_loaded"`
+	PropsLoadedAt            *time.Time     `json:"props_loaded_at,omitempty"`
+	PropsLoadedStatusCode    int            `json:"props_loaded_status_code,omitempty"`
 	StallDetected            bool           `json:"stall_detected"`
 	StallReason              string         `json:"stall_reason,omitempty"`
 }
@@ -222,7 +226,7 @@ func (l *ObserverLogger) LogResponse(metadata loggingproxy.RequestMetadata, time
 		}
 	}
 	state.stopPoller()
-	state.snapshotProps("props_end.json")
+	state.snapshotPropsIfAvailable()
 	state.writeSummary()
 }
 
@@ -386,15 +390,22 @@ func parseRequestInfo(data []byte, metadata loggingproxy.RequestMetadata) reques
 	if model, ok := payload["model"].(string); ok {
 		info.Model = model
 	}
-	for _, key := range []string{"stream", "max_tokens", "max_completion_tokens", "timings_per_token", "return_progress", "temperature"} {
-		if value, ok := payload[key]; ok {
-			info.Options[key] = value
+	for key, value := range payload {
+		if skipRequestOption(key) {
+			continue
 		}
-	}
-	if value, ok := payload["stream_options"]; ok {
-		info.Options["stream_options"] = value
+		info.Options[key] = value
 	}
 	return info
+}
+
+func skipRequestOption(key string) bool {
+	switch key {
+	case "messages", "prompt", "input", "suffix", "tools", "functions":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *requestState) handleSSELine(file *os.File, line []byte) {

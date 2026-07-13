@@ -6,7 +6,7 @@ It keeps raw HTTP request/response logs and adds llama.cpp-specific observabilit
 
 - injects lightweight diagnostic request options for chat completions
 - records timestamped SSE events
-- polls `/metrics`, `/slots`, and `/props` for the requested model
+- polls `/metrics`, `/slots`, and `/props?model=<model-id>&autoload=0` for the requested model
 - uses `autoload=0` only for telemetry polling
 - writes a per-request `summary.json`
 - stores raw request and response HTTP without redaction so they can be replayed
@@ -54,9 +54,10 @@ logs/2026-07-01_14-20-15.770_2cdc9642/
   sse_events.jsonl
   metrics.jsonl
   slots.jsonl
-  props_start.json
-  props_end.json
+  props.json
   summary.json
 ```
 
-Telemetry polls include `autoload=0` so polling does not load models. Normal client requests are not modified with `autoload=0`, so pi can still autoload models.
+`props.json` is written from the first successful `/props?model=<model-id>&autoload=0` response for that request, so it captures the model parameters after the model is available without forcing autoload.
+
+Telemetry polls include `autoload=0` so polling does not load models. Normal client requests are not modified with `autoload=0`, so pi can still autoload models. The complete per-request parameters and raw request/response bodies are present in `request.http` and `response.http`; `summary.json` also includes top-level request options, excluding prompt/message/tool payloads to keep the summary compact.
