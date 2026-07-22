@@ -1,0 +1,15 @@
+server:
+  host: "127.0.0.1"
+  port: 5602
+
+upstream:
+  base_url: "http://127.0.0.1:8080/"
+
+logging:
+  log_dir: "logs-ternarybonsai27b-repro-20260715"
+  console: true
+
+observer:
+  poll_interval_ms: 1000
+  poll_timeout_ms: 2000
+  max_parse_bytes: 52428800

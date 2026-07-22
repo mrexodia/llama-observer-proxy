@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -55,7 +56,7 @@ func (s *requestState) pollLoop() {
 
 func (s *requestState) pollOnce(metricsFile, slotsFile *os.File) {
 	now := time.Now()
-	if metricsFile != nil {
+	if metricsFile != nil && !s.logger.endpointDisabled("metrics") {
 		entry := s.fetchMetrics(now)
 		appendJSONLine(metricsFile, entry)
 		if metrics, ok := entry["metrics"].(map[string]any); ok {
@@ -65,18 +66,34 @@ func (s *requestState) pollOnce(metricsFile, slotsFile *os.File) {
 			})
 		}
 	}
-	if slotsFile != nil {
+	if slotsFile != nil && !s.logger.endpointDisabled("slots") {
 		appendJSONLine(slotsFile, s.fetchJSONEndpoint("slots", now))
 	}
 	s.snapshotPropsIfAvailable()
 	s.writeSummary()
 }
 
+func (l *ObserverLogger) endpointDisabled(endpoint string) bool {
+	l.epMu.Lock()
+	defer l.epMu.Unlock()
+	return l.disabledEndpoints[endpoint]
+}
+
+func (l *ObserverLogger) disableEndpoint(endpoint string) {
+	l.epMu.Lock()
+	defer l.epMu.Unlock()
+	if l.disabledEndpoints[endpoint] {
+		return
+	}
+	l.disabledEndpoints[endpoint] = true
+	log.Printf("upstream returned 404 for /%s — disabling further polling of it (upstream is not llama.cpp?)", endpoint)
+}
+
 func (s *requestState) snapshotPropsIfAvailable() {
 	s.mu.Lock()
 	done := s.propsLoadedSaved
 	s.mu.Unlock()
-	if done {
+	if done || s.logger.endpointDisabled("props") {
 		return
 	}
 	entry := s.fetchJSONEndpoint("props", time.Now())
@@ -106,6 +123,9 @@ func (s *requestState) snapshotPropsIfAvailable() {
 
 func (s *requestState) fetchMetrics(ts time.Time) map[string]any {
 	body, status, err := s.fetchEndpoint("metrics")
+	if status == http.StatusNotFound {
+		s.logger.disableEndpoint("metrics")
+	}
 	entry := map[string]any{
 		"ts":     ts,
 		"status": status,
@@ -123,6 +143,9 @@ func (s *requestState) fetchMetrics(ts time.Time) map[string]any {
 
 func (s *requestState) fetchJSONEndpoint(endpoint string, ts time.Time) map[string]any {
 	body, status, err := s.fetchEndpoint(endpoint)
+	if status == http.StatusNotFound {
+		s.logger.disableEndpoint(endpoint)
+	}
 	entry := map[string]any{
 		"ts":     ts,
 		"status": status,

@@ -27,6 +27,10 @@ type ObserverLogger struct {
 	mu         sync.Mutex
 	states     map[string]*requestState
 	maxBodyLen int64
+
+	// endpoints that returned 404 (upstream is not llama.cpp); polled once, then skipped
+	epMu              sync.Mutex
+	disabledEndpoints map[string]bool
 }
 
 type requestState struct {
@@ -114,8 +118,9 @@ func NewObserverLogger(cfg Config) (*ObserverLogger, error) {
 		client: &http.Client{
 			Timeout: cfg.PollTimeout(),
 		},
-		states:     map[string]*requestState{},
-		maxBodyLen: cfg.Observer.MaxParseBytes,
+		states:            map[string]*requestState{},
+		maxBodyLen:        cfg.Observer.MaxParseBytes,
+		disabledEndpoints: map[string]bool{},
 	}, nil
 }
 
